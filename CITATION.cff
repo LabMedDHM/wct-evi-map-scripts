@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "WCT EVI MAP scripts: figures and tables for evidence and gap maps of the WHO Classification of Tumours"
+abstract: >-
+  Python scripts for generating figures and tables for an evidence and gap map
+  for haematopoietic non-solid cancers, particularly acute myeloid leukaemia
+  (AML) and precursor B-cell neoplasms (B-ALL/LBL), as defined by the WHO
+  Classification of Tumours (WCT) of Haematolymphoid Tumours.
+type: software
+authors:
+  - family-names: Worf
+    given-names: Karolina
+    affiliation: "Institute of Laboratory Medicine, German Heart Centre Munich, TUM University Hospital"
+    # orcid: "https://orcid.org/0000-0000-0000-0000"
+version: 1.0.0
+date-released: 2026-10-30
+license: MIT
+keywords:
+  - evidence and gap map
+  - WHO Classification of Tumours
+  - acute myeloid leukaemia
+  - B-lymphoblastic leukaemia/lymphoma
+  - levels of evidence
+  - EPPI-Reviewer
+  - WCT EVI MAP
