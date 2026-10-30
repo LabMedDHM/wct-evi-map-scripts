@@ -1,0 +1,6 @@
+# Required by 03_egm_figures_and_tables.py and egm_common.py.
+# Steps 01 and 02 use the Python standard library only.
+# Tested with numpy 2.2.6, pandas 2.3.3 and matplotlib 3.10.9 on Python 3.10.
+numpy>=1.24
+pandas>=2.0
+matplotlib>=3.7
