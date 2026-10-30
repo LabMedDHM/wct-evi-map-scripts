@@ -1,12 +1,10 @@
 """
 egm_common.py
 =============
-Shared core for the WCT EVI MAP figure and table generator. It turns one
-merged Blue Book JSON (the output of 02_merge_json_files.py after LoE coding)
-into tidy data, and holds every styling and ordering decision so that all
-figures and tables share one style and one set of counting rules across
-the Blue Books (Haematolymphoid, Endocrine and Neuroendocrine, Central
-Nervous System).
+Shared core for the WCT EVI MAP figure and table generator. It turns the
+merged Haematolymphoid JSON (the output of 02_merge_json_files.py after LoE
+coding) into tidy data, and holds every styling and ordering decision so that
+all figures and tables share one style and one set of counting rules.
 
 This module produces no final files. It is imported, not run, which is why it
 carries no numeric filename prefix.
@@ -32,9 +30,9 @@ can all be recovered from the same frame:
                        the study-level rows of Table 1.
 
 For per-group (per source map) views, an entry is counted once per source map
-it touches, i.e. drop_duplicates(["entry_id", "source_map"]). In every Blue
-Book here each entry sits in exactly one source map, so this only matters as a
-safeguard.
+it touches, i.e. drop_duplicates(["entry_id", "source_map"]). In the
+Haematolymphoid data each entry sits in exactly one source map, so this only
+matters as a safeguard.
 
 Raw entries without a tumour-type leaf, a characteristic or an LoE are dropped
 by entries_df; their number is reported on the console by the generator.
@@ -43,11 +41,11 @@ Source maps versus codeset tumour groups
 ----------------------------------------
 The split unit for per-group outputs is the *source map*, the search and map
 that produced the records, not the codeset tumour group (the immediate child
-of the Blue Book root). For Endo and CNS the source map equals the codeset
-group, except that the CNS "Embryonal tumours" group is the Medulloblastoma
-map. For Haema the three AML codeset groups all belong to the single AML map.
-SOURCE_MAP_OF_GROUP below encodes the only departures from "source map equals
-codeset group"; everything else falls through to the group name.
+of the Blue Book root). The three AML codeset groups (AML with defining
+genetic abnormalities, AML defined by differentiation and myeloid sarcoma)
+all belong to the single AML map, because the AML search and map were done as
+one. SOURCE_MAP_OF_GROUP below encodes this; every other group (here the
+precursor B-cell neoplasms) is its own source map.
 
 British English and verbatim WHO nomenclature
 ---------------------------------------------
@@ -153,22 +151,17 @@ STUDY_ID_FIELD = "OldItemId"
 # codeset group AttributeName. Any group not listed here keeps its own name as
 # the source map.
 SOURCE_MAP_OF_GROUP: Dict[str, str] = {
-    # Haema: the three AML codeset groups were one search and one map.
+    # The three AML codeset groups were one search and one map.
     "Acute myeloid leukaemia with defining genetic abnormalities": "Acute myeloid leukaemia",
     "Acute myeloid leukaemia defined by differentiation":          "Acute myeloid leukaemia",
     "Myeloid sarcoma":                                             "Acute myeloid leukaemia",
-    # CNS: the Embryonal tumours codeset group is the Medulloblastoma map.
-    "Embryonal tumours": "Medulloblastoma",
 }
 
 # Display-only short labels for source maps in figure legends, axes and panel
 # titles. The canonical source-map key is kept for splitting, file naming and
-# table contents; only the reader-facing figure label is shortened.
-SOURCE_MAP_DISPLAY: Dict[str, str] = {
-    "Follicular cell-derived neoplasms \u2013 Benign tumours":     "Benign tumours",
-    "Follicular cell-derived neoplasms \u2013 Low-risk neoplasms": "Low-risk neoplasms",
-    "Follicular cell-derived neoplasms \u2013 Malignant neoplasms": "Malignant neoplasms",
-}
+# table contents; only the reader-facing figure label is shortened. Empty for
+# the Haematolymphoid maps, whose full names are short enough.
+SOURCE_MAP_DISPLAY: Dict[str, str] = {}
 
 
 def display_char(name: str) -> str:
@@ -186,6 +179,24 @@ def display_design(label: Optional[str]) -> Optional[str]:
 def display_map(name: str) -> str:
     """Source-map display label for figures (short form where defined)."""
     return SOURCE_MAP_DISPLAY.get(name, name)
+
+
+# Source-map labels in the main-text tables (Tables 1 and 2), worded as in the
+# publication. Figures keep the plain source-map names.
+TABLE_MAP_LABEL: Dict[str, str] = {
+    "Acute myeloid leukaemia":    "Acute myeloid leukaemia (AML)",
+    "Precursor B-cell neoplasms": "Precursor B-cell neoplasms (B-ALL/LBL)",
+}
+
+
+def table_map_label(name: str) -> str:
+    """Source-map label for the main-text tables (with abbreviation)."""
+    return TABLE_MAP_LABEL.get(name, name)
+
+
+def panel_letter(pos: int) -> str:
+    """Panel letter for multi-panel figures: 0 -> 'a', 1 -> 'b', ..."""
+    return chr(ord("a") + pos)
 
 
 def source_map_of_group(group_name: str) -> str:

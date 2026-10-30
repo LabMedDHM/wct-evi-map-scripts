@@ -2,9 +2,8 @@
 03_egm_figures_and_tables.py
 ============================
 Step 3 of the WCT EVI MAP pipeline. Generates every computed figure and table
-of an evidence and gap map publication from one merged Blue Book JSON (the
-output of 02_merge_json_files.py). The same script serves every Blue Book;
-only the path on the command line changes. All styling, ordering and
+of the AML and B-ALL/LBL evidence and gap map publication from the merged
+JSON (the output of 02_merge_json_files.py). All styling, ordering and
 counting rules live in egm_common.py.
 
 Usage
@@ -36,13 +35,11 @@ as PNG (300 dpi) and PDF, together with a TSV of the numbers it plots.
         TableS<n>_<map>_characteristics_by_loe          one TSV per map
         TableS<n>_<map>_tumour_type_by_characteristic   one TSV per map
         TableS<n>_<map>_tumour_type_by_loe              one TSV per map
-        Additional_LoE_by_characteristic_and_group  not in the publication
 
 Output names follow the numbering of the AML and B-ALL/LBL publication. The
 per-map supplementary tables come in blocks of three per source map, starting
 at Table S<PER_MAP_TABLES_FIRST>, in the order of PER_MAP_TABLES: for AML
-Tables S9 to S11, for B-ALL/LBL Tables S12 to S14. For another Blue Book,
-adjust PER_MAP_TABLES_FIRST and the figure names to its publication.
+Tables S9 to S11, for B-ALL/LBL Tables S12 to S14.
 
 Not produced here: Figures 1 (map screenshot) and 2 (PRISMA 2020 flow
 diagram), Supplementary Figures S1 to S4 (decision tree, screening flow
@@ -66,7 +63,6 @@ Counting units (see egm_common for the full rationale)
     Table S9, S12   raw entries per source map (characteristic x LoE)
     Table S10, S13  per-leaf records (total row is the fan-out column sum)
     Table S11, S14  per-leaf records (total row is the fan-out column sum)
-    Additional      raw entries per source map
 
 Gap classification (Figure 7), per tumour type and characteristic cell:
     Absolute gap    0 records
@@ -119,17 +115,14 @@ def _map_colours(map_order: List[str]):
 # ---------------------------------------------------------------------------
 
 METRIC_ORDER = [
-    "Studies in EGM (n)",
+    "Studies included (n)",
     "Systematic reviews (n (%))",
     "Primary studies (n (%))",
     "Multi-coded tumour type studies (n (%))",
     "Multi-coded characteristic studies (n (%))",
     "Multi-coded studies in total (n (%))",
-    "Entries in the EGM (n)",
+    "Entries included (n)",
     "Entries per tumour type (median (range))",
-    "High-level evidence, P1 to P2 (n (%))",
-    "Medium-level evidence, P3 (n (%))",
-    "Low-level evidence, P4 to P5 (n (%))",
 ]
 
 
@@ -184,17 +177,14 @@ def _format_metric_column(raw: dict) -> dict:
     else:
         ept_str = "n/a"
     return {
-        "Studies in EGM (n)": f"{ns:,}",
+        "Studies included (n)": f"{ns:,}",
         "Systematic reviews (n (%))": _pct(raw["n_sr"], ns),
         "Primary studies (n (%))": _pct(raw["n_primary"], ns),
         "Multi-coded tumour type studies (n (%))": _pct(raw["n_multi_tum"], ns),
         "Multi-coded characteristic studies (n (%))": _pct(raw["n_multi_char"], ns),
         "Multi-coded studies in total (n (%))": _pct(raw["n_multi_total"], ns),
-        "Entries in the EGM (n)": f"{ne:,}",
+        "Entries included (n)": f"{ne:,}",
         "Entries per tumour type (median (range))": ept_str,
-        "High-level evidence, P1 to P2 (n (%))": _pct(raw["n_high"], ne),
-        "Medium-level evidence, P3 (n (%))": _pct(raw["n_medium"], ne),
-        "Low-level evidence, P4 to P5 (n (%))": _pct(raw["n_low"], ne),
     }
 
 
@@ -204,13 +194,13 @@ def table1_details_of_egm(data, entries, idx, outdir) -> None:
     multi-coded studies, entries, entries per tumour type and LoE bands.
 
     The Total column sums the per-map values, so a study coded in two maps is
-    counted twice (Uro publication convention). The DOI-based unique study
+    counted twice (project convention). The DOI-based unique study
     count across maps is printed to the console for transparency."""
     maps = idx["map_order"]
     raws = {m: _map_metrics(entries, idx, m) for m in maps}
 
     # Total column: sum across maps (one study counted once per map it appears
-    # in, no cross-map deduplication), matching the published Uro Table 2.
+    # in, no cross-map deduplication), following the project convention.
     total_raw = {
         "n_studies": sum(r["n_studies"] for r in raws.values()),
         "n_sr": sum(r["n_sr"] for r in raws.values()),
@@ -230,9 +220,9 @@ def table1_details_of_egm(data, entries, idx, outdir) -> None:
 
     rows = []
     for metric in METRIC_ORDER:
-        row = {"Metric": metric}
+        row = {"": metric}
         for m in maps:
-            row[m] = formatted[m][metric]
+            row[ec.table_map_label(m)] = formatted[m][metric]
         row["Total"] = total_col[metric]
         rows.append(row)
     out_df = pd.DataFrame(rows)
@@ -264,10 +254,10 @@ def table2_evidence_level_by_tumour_group(data, entries, idx, outdir) -> None:
     by_map = ec.raw_entries_by_map(entries)
 
     bands = [
-        ("High-level evidence, P1 to P2, n (%)", ec.HIGH_LOE),
-        ("Medium-level evidence, P3, n (%)", {"Level P3"}),
-        ("Low-level evidence, P4 to P5, n (%)", ec.LOW_LOE),
-        ("Unclassifiable, n (%)", {"Unclassifiable"}),
+        ("High level of evidence, P1 to P2 (n (%))", ec.HIGH_LOE),
+        ("Medium level of evidence, P3 (n (%))", {"Level P3"}),
+        ("Low level of evidence, P4 to P5 (n (%))", ec.LOW_LOE),
+        ("Unclassifiable (n (%))", {"Unclassifiable"}),
     ]
 
     counts = {}
@@ -281,66 +271,22 @@ def table2_evidence_level_by_tumour_group(data, entries, idx, outdir) -> None:
 
     rows = []
     for m in maps:
-        row = {"Tumour group": ec.display_map(m)}
+        row = {"Tumour group": ec.table_map_label(m)}
         for col, _ in bands:
             row[col] = _pct(counts[m][col], counts[m]["total"])
-        row["Total, n (%)"] = _pct(counts[m]["total"], grand)
+        row["Total (n)"] = _pct(counts[m]["total"], grand)
         rows.append(row)
-    trow = {"Tumour group": "Total"}
+    trow = {"Tumour group": "Total (n (%))"}
     for col, _ in bands:
         trow[col] = _pct(col_tot[col], grand)
-    trow["Total, n (%)"] = _pct(grand, grand)
+    trow["Total (n)"] = _pct(grand, grand)
     rows.append(trow)
 
-    cols = ["Tumour group"] + [c for c, _ in bands] + ["Total, n (%)"]
+    cols = ["Tumour group"] + [c for c, _ in bands] + ["Total (n)"]
     out_df = pd.DataFrame(rows)[cols]
     path = ec.save_table(out_df, ec.tables_dir(outdir),
                          "Table2_evidence_level_by_tumour_group")
     print(f"[Table2] saved to {path.name}. Grand total entries: {grand:,}")
-
-
-# ---------------------------------------------------------------------------
-# Additional table (not in the publication): level of evidence by
-# characteristic and tumour group, combined (Uro format)
-# ---------------------------------------------------------------------------
-
-def additional_loe_by_characteristic_and_group(data, entries, idx, outdir) -> None:
-    """LoE distribution across characteristics by tumour group, one combined
-    table with a subtotal per characteristic, in the Uro publication format.
-    Counting unit: raw EGM entries, each counted once for its source map."""
-    maps = idx["map_order"]
-    by_map = ec.raw_entries_by_map(entries)
-    loe_cols = [f"{loe}, n (%)" for loe in ec.LOE_ORDER]
-
-    rows = []
-    grand = 0
-    for ch in ec.CHARACTERISTIC_ORDER:
-        sub_per_loe = {loe: 0 for loe in ec.LOE_ORDER}
-        for i, m in enumerate(maps):
-            seg = by_map[(by_map["source_map"] == m) &
-                         (by_map["characteristic"] == ch)]
-            per_loe = {loe: int((seg["loe"] == loe).sum()) for loe in ec.LOE_ORDER}
-            row_total = sum(per_loe.values())
-            row = {"Tumour characteristic": ec.display_char(ch) if i == 0 else "",
-                   "Tumour group": ec.display_map(m),
-                   "Total n": f"{row_total:,}"}
-            for loe in ec.LOE_ORDER:
-                row[f"{loe}, n (%)"] = _pct(per_loe[loe], row_total)
-                sub_per_loe[loe] += per_loe[loe]
-            rows.append(row)
-        sub_total = sum(sub_per_loe.values())
-        grand += sub_total
-        srow = {"Tumour characteristic": "", "Tumour group": "Subtotal",
-                "Total n": f"{sub_total:,}"}
-        for loe in ec.LOE_ORDER:
-            srow[f"{loe}, n (%)"] = _pct(sub_per_loe[loe], sub_total)
-        rows.append(srow)
-
-    cols = ["Tumour characteristic", "Tumour group", "Total n"] + loe_cols
-    out_df = pd.DataFrame(rows)[cols]
-    path = ec.save_table(out_df, ec.supplements_dir(outdir),
-                         "Additional_LoE_by_characteristic_and_group")
-    print(f"[Additional] saved to {path.name}. Grand total entries: {grand:,}")
 
 
 # ---------------------------------------------------------------------------
@@ -660,7 +606,7 @@ def fig5_characteristics_by_loe(data, entries, idx, outdir) -> None:
                    f"{ec.book_name(data)}: characteristics by level of evidence",
                    inline_labels=True, callouts=False)
     # Legend in canonical LoE order (P1 first) outside on the right with a grey
-    # border, matching the Uro paper Figure 4.
+    # border.
     handles, labels = ax.get_legend_handles_labels()
     label_to_handle = dict(zip(labels, handles))
     ordered = [(label_to_handle[l], l) for l in ec.LOE_ORDER if l in label_to_handle]
@@ -729,6 +675,8 @@ def figS5_characteristics_by_loe_by_group(data, entries, idx, outdir) -> None:
                         va="bottom", fontsize=8.5, fontweight="bold")
 
         ax.set_title(ec.display_map(m), fontsize=10.5, pad=8)
+        ax.text(0.0, 1.02, ec.panel_letter(k), transform=ax.transAxes,
+                ha="left", va="bottom", fontsize=13, fontweight="bold")
         ax.set_xticks(x)
         ax.set_xticklabels([ec.display_char(c) for c in ec.CHARACTERISTIC_ORDER],
                            rotation=30, ha="right", fontsize=8.5)
@@ -755,7 +703,7 @@ def figS5_characteristics_by_loe_by_group(data, entries, idx, outdir) -> None:
                bbox_to_anchor=(0.995, 0.5), frameon=True, edgecolor="lightgray",
                fontsize=10, title="Level of Evidence", title_fontsize=10.5)
     fig.supxlabel("Characteristics", x=0.44)
-    fig.supylabel("Number of evidence and map entries")
+    fig.supylabel("Number of evidence and gap map entries")
     fig.suptitle(f"{ec.book_name(data)}: Characteristics by level of evidence "
                  f"per tumour group", fontsize=13)
     fig.tight_layout(rect=(0.02, 0.06, 0.86, 0.96))
@@ -873,6 +821,8 @@ def figS6_tumour_type_by_loe_by_group(data, entries, idx, outdir) -> None:
             if sp > 0:
                 title = title[:sp] + "\n" + title[sp + 1:]
         ax.set_title(title, fontsize=10.5, pad=8)
+        ax.text(0.0, 1.02, ec.panel_letter(maps.index(m)), transform=ax.transAxes,
+                ha="left", va="bottom", fontsize=13, fontweight="bold")
         ax.set_xticks(x)
         ax.set_xticklabels(leaves, rotation=45, ha="right",
                            fontsize=7.5 if n_leaves > 12 else 8.5)
@@ -941,14 +891,13 @@ def figS6_tumour_type_by_loe_by_group(data, entries, idx, outdir) -> None:
 
 # ---------------------------------------------------------------------------
 # Figure 6: high-level evidence heatmap, source map x characteristic
-# (ported from the Uro figure 5 script)
 # ---------------------------------------------------------------------------
 
 def fig6_high_loe_heatmap(data, entries, idx, outdir) -> None:
     maps = idx["map_order"]
     chars = ec.CHARACTERISTIC_ORDER
     # Entry once per source map, so within-group multi-leaf coding does not
-    # inflate the denominator (matches the Uro figure 5 counting rule).
+    # inflate the denominator.
     by_map = ec.raw_entries_by_map(entries)
 
     num = np.zeros((len(maps), len(chars)), dtype=int)
@@ -1005,8 +954,8 @@ def fig6_high_loe_heatmap(data, entries, idx, outdir) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Figure 7: combined gap classification matrix, tumour type x characteristic
-# (ported from the Uro figure 6 script, combined across all maps)
+# Figure 7: combined gap classification matrix, tumour type x characteristic,
+# across all source maps
 # ---------------------------------------------------------------------------
 
 def _classify_cell(n_total: int, n_high: int) -> str:
@@ -1171,17 +1120,17 @@ def _per_map_axis_table(entries, idx, outdir, axis_values, axis_col,
         rows = []
         for leaf in leaves:
             sub = em[em["tumour_type"] == leaf]
-            row = {"Tumour group": m, "Tumour type": leaf}
+            row = {"Tumour type": leaf}
             for v in axis_values:
                 row[v] = f"{int((sub[axis_col] == v).sum()):,}"
-            row["Total n"] = f"{len(sub):,}"
+            row["Total"] = f"{len(sub):,}"
             rows.append(row)
         # Total row is the column sum of the tumour-type rows above (fan-out
         # counts), so it adds up to exactly what is displayed.
-        total_row = {"Tumour group": "", "Tumour type": f"Total: {m}"}
+        total_row = {"Tumour type": "Total"}
         for v in axis_values:
             total_row[v] = f"{int((em[axis_col] == v).sum()):,}"
-        total_row["Total n"] = f"{len(em):,}"
+        total_row["Total"] = f"{len(em):,}"
         rows.append(total_row)
 
         name = _per_map_table_name(descriptor, pos, m)
@@ -1206,6 +1155,12 @@ def tableS11_S14_type_by_loe(data, entries, idx, outdir) -> None:
     print(f"[TableS11, S14] saved {len(saved)} per-map TSV(s): {', '.join(saved)}")
 
 
+# Row labels of Tables S9 and S12 as worded in the publication.
+S9_S12_CHARACTERISTIC_LABEL = {
+    "Histopathology (incl. cytopathology)": "Histopathology (including cytopathology)",
+}
+
+
 def tableS9_S12_characteristics_by_loe(data, entries, idx, outdir) -> None:
     """Tables S9 and S12: characteristic x LoE, one TSV per source map. Counts and within-map
     percentages over raw entries (one per entry)."""
@@ -1223,12 +1178,12 @@ def tableS9_S12_characteristics_by_loe(data, entries, idx, outdir) -> None:
 
         rows = []
         for i, ch in enumerate(ec.CHARACTERISTIC_ORDER):
-            row = {"Tumour characteristic": ch}
+            row = {"Characteristic": S9_S12_CHARACTERISTIC_LABEL.get(ch, ch)}
             for j, loe in enumerate(ec.LOE_ORDER):
                 row[loe] = cell(counts[i, j])
             row["Total"] = cell(counts[i, :].sum())
             rows.append(row)
-        total_row = {"Tumour characteristic": "Total"}
+        total_row = {"Characteristic": "Total"}
         for j, loe in enumerate(ec.LOE_ORDER):
             total_row[loe] = cell(counts[:, j].sum())
         total_row["Total"] = cell(counts.sum())
@@ -1262,8 +1217,6 @@ BUILDERS = {
     "tableS9_S12_characteristics_by_loe":    tableS9_S12_characteristics_by_loe,
     "tableS10_S13_type_by_characteristic":   tableS10_S13_type_by_characteristic,
     "tableS11_S14_type_by_loe":              tableS11_S14_type_by_loe,
-    # additional output, not part of the publication
-    "additional_loe_by_characteristic_and_group": additional_loe_by_characteristic_and_group,
 }
 
 
