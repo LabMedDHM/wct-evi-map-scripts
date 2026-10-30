@@ -41,7 +41,7 @@ Screening and coding were done in EPPI-Reviewer and the interactive maps were bu
 * Python 3.9 or later
 * numpy, pandas and matplotlib (see `requirements.txt`)
 
-Steps 1 and 2 use the Python standard library only. Tested with Python 3.10, numpy 2.2, pandas 2.3 and matplotlib 3.10.
+Steps 1 and 2 use the Python standard library only. The scripts were developed with Python 3.12.7 and also tested with Python 3.10 (numpy 2.2, pandas 2.3, matplotlib 3.10) and Python 3.13 (numpy 2.5, pandas 3.0, matplotlib 3.11).
 
 ```
 python -m venv .venv
