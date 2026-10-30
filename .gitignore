@@ -14,8 +14,11 @@ __pycache__/
 # Ignore all JSON data files
 *.json
 
-# But keep the HETP lookup table
+# But keep the HETP lookup table and the Zenodo metadata
 !01_study_design_to_loe_HETP.json
+!.zenodo.json
+!data/Report_AML.json
+!data/Report_B-ALL.json
 
 # C extensions
 *.so
@@ -230,3 +233,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# macOS
+.DS_Store
