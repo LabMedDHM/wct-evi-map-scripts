@@ -1,39 +1,78 @@
 """
 03_egm_figures_and_tables.py
 ============================
-Single generator for every WCT EVI MAP publication figure and table, from one
-merged Blue Book JSON. The same script serves Haema, Endo and CNS by changing
-only the path on the command line.
+Step 3 of the WCT EVI MAP pipeline. Generates every computed figure and table
+of an evidence and gap map publication from one merged Blue Book JSON (the
+output of 02_merge_json_files.py). The same script serves every Blue Book;
+only the path on the command line changes. All styling, ordering and
+counting rules live in egm_common.py.
 
 Usage
 -----
-    python3 03_egm_figures_and_tables.py path/to/Report_<book>_merged_loe.json
-    python3 03_egm_figures_and_tables.py path/to/file.json --only fig7_gap_matrix
-    python3 03_egm_figures_and_tables.py path/to/file.json --output-dir /some/dir
+    python 03_egm_figures_and_tables.py path/to/Report_merged_loe.json
+    python 03_egm_figures_and_tables.py path/to/file.json --only fig7_gap_matrix
+    python 03_egm_figures_and_tables.py path/to/file.json --output-dir /some/dir
 
-Outputs (created next to the merged file, or under --output-dir):
-    4_Figures/     Figure 3 to Figure 7 (main text)
-    5_Tables/      Table 1 and Table 2 (main text)
-    6_Supplemental_material/   Figure S1, Figure S2, Table S1, Table S2,
-                               Table S3, Table S4
+--only takes one or more builder names (see BUILDERS at the end of the file)
+and rebuilds just those outputs.
 
-Author-made Figures 1 (map screenshot) and 2 (PRISMA flowchart) are not
-produced here.
+Outputs
+-------
+Written next to the merged file, or under --output-dir. Every figure is saved
+as PNG (300 dpi) and PDF, together with a TSV of the numbers it plots.
 
-Counting units (see egm_common for the full rationale):
-    Figure 3   unique studies per year
-    Figure 4   unique studies per study design
+    4_Figures/
+        Figure3_studies_per_year                 studies per publication year
+        Figure4_study_designs                    studies per study design
+        Figure5_characteristics_by_loe_pooled    characteristics by LoE, pooled
+        Figure6_high_loe_heatmap                 share of P1 and P2 entries
+        Figure7_gap_matrix                       gap classification matrix
+    5_Tables/
+        Table1_details_of_EGM                    key metrics per source map
+        Table2_evidence_level_by_tumour_group    LoE bands per source map
+    6_Supplemental_material/
+        FigureS5_characteristics_by_loe_by_group one panel per source map
+        FigureS6_tumour_type_by_loe_by_group     one panel per source map
+        TableS<n>_<map>_characteristics_by_loe          one TSV per map
+        TableS<n>_<map>_tumour_type_by_characteristic   one TSV per map
+        TableS<n>_<map>_tumour_type_by_loe              one TSV per map
+        Additional_LoE_by_characteristic_and_group  not in the publication
+
+Output names follow the numbering of the AML and B-ALL/LBL publication. The
+per-map supplementary tables come in blocks of three per source map, starting
+at Table S<PER_MAP_TABLES_FIRST>, in the order of PER_MAP_TABLES: for AML
+Tables S9 to S11, for B-ALL/LBL Tables S12 to S14. For another Blue Book,
+adjust PER_MAP_TABLES_FIRST and the figure names to its publication.
+
+Not produced here: Figures 1 (map screenshot) and 2 (PRISMA 2020 flow
+diagram), Supplementary Figures S1 to S4 (decision tree, screening flow
+diagram, screening progress, PRISMA flow diagrams per tumour group) and
+Supplementary Tables S1 to S8 (classification, characteristics, eligibility
+criteria, search strategies, HETP). These were made by the authors or come
+from project documents; the HETP of Table S8 is the lookup table
+01_study_design_to_loe_HETP.json.
+
+Counting units (see egm_common for the full rationale)
+------------------------------------------------------
+    Figure 3   unique studies per year, once per source map
+    Figure 4   unique studies per study design, once per source map
     Figure 5   raw entries (characteristic x LoE, pooled)
-    Figure 6   raw entries, once per source map (high-LoE share by characteristic)
+    Figure 6   raw entries, once per source map
     Figure 7   per-leaf records (one per matching tumour-type leaf)
     Table 1    unique studies where study-level, raw entries where entry-level
-    Table 2    raw entries, once per source map (evidence-level bands by group)
-    Figure S1  raw entries per source map
-    Figure S2  per-leaf records per source map
-    Table S1   per-leaf records (total row is the fan-out column sum)
-    Table S2   per-leaf records (total row is the fan-out column sum)
-    Table S3   raw entries per source map
-    Table S4   raw entries per source map (LoE by characteristic and group)
+    Table 2    raw entries, once per source map
+    Figure S5  raw entries per source map
+    Figure S6  per-leaf records per source map
+    Table S9, S12   raw entries per source map (characteristic x LoE)
+    Table S10, S13  per-leaf records (total row is the fan-out column sum)
+    Table S11, S14  per-leaf records (total row is the fan-out column sum)
+    Additional      raw entries per source map
+
+Gap classification (Figure 7), per tumour type and characteristic cell:
+    Absolute gap    0 records
+    Relative gap    1 to 19 records, none at Level P1 or P2
+    Synthesis gap   20 or more records, none at Level P1 or P2
+    Solid evidence  at least one record at Level P1 or P2
 """
 
 from __future__ import annotations
@@ -59,6 +98,7 @@ import egm_common as ec
 # ---------------------------------------------------------------------------
 
 def _pct(n: int, total: int) -> str:
+    """Format a count with its percentage of total, e.g. '1,234 (12.34%)'."""
     return f"{n:,} ({100 * n / total:.2f}%)" if total else f"{n:,} (0.00%)"
 
 
@@ -134,9 +174,13 @@ def _map_metrics(entries: pd.DataFrame, idx: dict, source_map: str) -> dict:
 
 
 def _format_metric_column(raw: dict) -> dict:
+    """Turn the raw metrics of one column into the display strings of Table 1.
+    Study percentages use the study count, LoE percentages the entry count."""
     ns, ne, ept = raw["n_studies"], raw["n_entries"], raw["ept"]
     if ept:
-        ept_str = f"{int(np.median(ept)):,} ({min(ept):,} to {max(ept):,})"
+        med = float(np.median(ept))
+        med_str = f"{med:,.0f}" if med.is_integer() else f"{med:,.1f}"
+        ept_str = f"{med_str} ({min(ept):,} to {max(ept):,})"
     else:
         ept_str = "n/a"
     return {
@@ -155,6 +199,13 @@ def _format_metric_column(raw: dict) -> dict:
 
 
 def table1_details_of_egm(data, entries, idx, outdir) -> None:
+    """Table 1: details of the evidence and gap map, one column per source map
+    plus a Total column. Rows: studies, systematic reviews, primary studies,
+    multi-coded studies, entries, entries per tumour type and LoE bands.
+
+    The Total column sums the per-map values, so a study coded in two maps is
+    counted twice (Uro publication convention). The DOI-based unique study
+    count across maps is printed to the console for transparency."""
     maps = idx["map_order"]
     raws = {m: _map_metrics(entries, idx, m) for m in maps}
 
@@ -249,10 +300,11 @@ def table2_evidence_level_by_tumour_group(data, entries, idx, outdir) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Table S4: level of evidence by characteristic and tumour group (Uro format)
+# Additional table (not in the publication): level of evidence by
+# characteristic and tumour group, combined (Uro format)
 # ---------------------------------------------------------------------------
 
-def tableS4_loe_by_characteristic_and_group(data, entries, idx, outdir) -> None:
+def additional_loe_by_characteristic_and_group(data, entries, idx, outdir) -> None:
     """LoE distribution across characteristics by tumour group, one combined
     table with a subtotal per characteristic, in the Uro publication format.
     Counting unit: raw EGM entries, each counted once for its source map."""
@@ -287,8 +339,8 @@ def tableS4_loe_by_characteristic_and_group(data, entries, idx, outdir) -> None:
     cols = ["Tumour characteristic", "Tumour group", "Total n"] + loe_cols
     out_df = pd.DataFrame(rows)[cols]
     path = ec.save_table(out_df, ec.supplements_dir(outdir),
-                         "TableS4_LoE_by_characteristic_and_group")
-    print(f"[TableS4] saved to {path.name}. Grand total entries: {grand:,}")
+                         "Additional_LoE_by_characteristic_and_group")
+    print(f"[Additional] saved to {path.name}. Grand total entries: {grand:,}")
 
 
 # ---------------------------------------------------------------------------
@@ -296,6 +348,10 @@ def tableS4_loe_by_characteristic_and_group(data, entries, idx, outdir) -> None:
 # ---------------------------------------------------------------------------
 
 def fig3_studies_per_year(data, entries, idx, outdir) -> None:
+    """Figure 3: unique studies per publication year as stacked bars, one
+    segment per source map. A study counts once per map. Small segments get
+    a callout so every number is shown. Studies without a valid year are
+    left out."""
     maps = idx["map_order"]
     # One row per (study, source map), so a study counts once per map per year.
     per = (entries.drop_duplicates(["study_id", "source_map"])
@@ -406,6 +462,9 @@ def fig3_studies_per_year(data, entries, idx, outdir) -> None:
 # ---------------------------------------------------------------------------
 
 def fig4_study_designs(data, entries, idx, outdir) -> None:
+    """Figure 4: unique studies per study design as horizontal stacked bars,
+    one segment per source map, designs in alphabetical order. Skipped when
+    the Blue Book has only one source map."""
     maps = idx["map_order"]
     # Counting unit: unique studies per map (study_id), one count per study
     # design within a map. A study coded under several characteristics or LoE
@@ -499,8 +558,8 @@ def fig4_study_designs(data, entries, idx, outdir) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Characteristic x LoE helpers: _char_loe_counts (shared by Figure 5, Figure S1
-# and Table S3) and _plot_char_loe (the Figure 5 stacked-bar renderer)
+# Characteristic x LoE helpers: _char_loe_counts (shared by Figure 5, Figure S5
+# and Tables S9 and S12) and _plot_char_loe (the Figure 5 stacked-bar renderer)
 # ---------------------------------------------------------------------------
 
 def _char_loe_counts(raw: pd.DataFrame) -> np.ndarray:
@@ -516,6 +575,16 @@ def _char_loe_counts(raw: pd.DataFrame) -> np.ndarray:
 def _plot_char_loe(ax, counts: np.ndarray, title: str,
                    inline_labels: bool = True, callouts: bool = True,
                    ylabel: bool = True) -> None:
+    """Draw characteristic x LoE stacked bars on ax, Level P1 on top.
+
+    Args:
+        ax: matplotlib axes to draw on.
+        counts: array [characteristic, LoE] from _char_loe_counts.
+        title: axes title.
+        inline_labels: write segment counts inside large enough segments.
+        callouts: label small segments with a leader line to the right.
+        ylabel: draw the y-axis label.
+    """
     x = np.arange(len(ec.CHARACTERISTIC_ORDER))
     bar_width = 0.7
     bottoms = np.zeros(len(ec.CHARACTERISTIC_ORDER))
@@ -611,7 +680,7 @@ def fig5_characteristics_by_loe(data, entries, idx, outdir) -> None:
     print(f"[Figure5] saved. {int(counts.sum()):,} entries pooled.")
 
 
-def figS1_characteristics_by_loe_by_group(data, entries, idx, outdir) -> None:
+def figS5_characteristics_by_loe_by_group(data, entries, idx, outdir) -> None:
     """All-maps characteristics x LoE comparison, in the report's grid and
     sizing (one row of two or three subplots). Title and the single shared
     x-axis and y-axis labels follow the project house style."""
@@ -691,17 +760,17 @@ def figS1_characteristics_by_loe_by_group(data, entries, idx, outdir) -> None:
                  f"per tumour group", fontsize=13)
     fig.tight_layout(rect=(0.02, 0.06, 0.86, 0.96))
     ec.save_figure(fig, ec.supplements_dir(outdir),
-                   "FigureS1_characteristics_by_loe_by_group")
+                   "FigureS5_characteristics_by_loe_by_group")
     ec.save_table(pd.DataFrame(src_rows), ec.supplements_dir(outdir),
-                  "FigureS1_characteristics_by_loe_by_group_data")
-    print(f"[FigureS1] saved. {n} panel(s) in {nrows}x{ncols} grid.")
+                  "FigureS5_characteristics_by_loe_by_group_data")
+    print(f"[FigureS5] saved. {n} panel(s) in {nrows}x{ncols} grid.")
 
 
 # ---------------------------------------------------------------------------
-# Figure S2: all-maps tumour-type x LoE comparison
+# Figure S6: all-maps tumour-type x LoE comparison
 # ---------------------------------------------------------------------------
 
-def figS2_tumour_type_by_loe_by_group(data, entries, idx, outdir) -> None:
+def figS6_tumour_type_by_loe_by_group(data, entries, idx, outdir) -> None:
     """All-maps tumour-type x LoE comparison, in the report's grid and sizing.
     Each subplot's width is proportional to its tumour-type count so every bar
     has the same on-page width. Title and the single shared x-axis and y-axis
@@ -864,10 +933,10 @@ def figS2_tumour_type_by_loe_by_group(data, entries, idx, outdir) -> None:
                   y=label_bottom - gap)
     fig.supylabel("Number of evidence and gap map entries", x=ylabel_x)
     ec.save_figure(fig, ec.supplements_dir(outdir),
-                   "FigureS2_tumour_type_by_loe_by_group")
+                   "FigureS6_tumour_type_by_loe_by_group")
     ec.save_table(pd.DataFrame(src_rows), ec.supplements_dir(outdir),
-                  "FigureS2_tumour_type_by_loe_by_group_data")
-    print(f"[FigureS2] saved. {n} panel(s) in {nrows}x{ncols} grid.")
+                  "FigureS6_tumour_type_by_loe_by_group_data")
+    print(f"[FigureS6] saved. {n} panel(s) in {nrows}x{ncols} grid.")
 
 
 # ---------------------------------------------------------------------------
@@ -941,6 +1010,8 @@ def fig6_high_loe_heatmap(data, entries, idx, outdir) -> None:
 # ---------------------------------------------------------------------------
 
 def _classify_cell(n_total: int, n_high: int) -> str:
+    """Gap category of one matrix cell from its record count and its number
+    of high-level (P1 or P2) records. See the module docstring."""
     if n_total == 0:
         return "Absolute gap"
     if n_high == 0:
@@ -949,6 +1020,10 @@ def _classify_cell(n_total: int, n_high: int) -> str:
 
 
 def fig7_gap_matrix(data, entries, idx, outdir) -> None:
+    """Figure 7: gap classification matrix, all tumour types (rows, grouped
+    by source map with brackets on the right) by characteristic (columns).
+    Cell colour is the gap category, the number is the record count. The
+    companion TSV lists the category and count of every cell."""
     maps = idx["map_order"]
     chars = ec.CHARACTERISTIC_ORDER
 
@@ -1060,15 +1135,32 @@ def fig7_gap_matrix(data, entries, idx, outdir) -> None:
 # Supplementary tables, one TSV per source map
 # ---------------------------------------------------------------------------
 
-def _letter(pos: int) -> str:
-    return chr(ord("a") + pos)
+# Numbering of the per-map supplementary tables. Each source map gets one block
+# of tables in the order of PER_MAP_TABLES, and the first block starts at
+# Table S<PER_MAP_TABLES_FIRST>. AML and B-ALL/LBL publication: AML Tables S9
+# to S11, B-ALL/LBL Tables S12 to S14.
+PER_MAP_TABLES_FIRST = 9
+PER_MAP_TABLES = [
+    "characteristics_by_loe",
+    "tumour_type_by_characteristic",
+    "tumour_type_by_loe",
+]
+
+
+def _per_map_table_name(kind: str, pos: int, source_map: str) -> str:
+    """File name of a per-map supplementary table, e.g. pos 1 (second map) and
+    kind 'tumour_type_by_loe' -> 'TableS14_<map>_tumour_type_by_loe'."""
+    number = (PER_MAP_TABLES_FIRST + len(PER_MAP_TABLES) * pos
+              + PER_MAP_TABLES.index(kind))
+    return f"TableS{number}_{ec.map_slug(source_map)}_{kind}"
 
 
 def _per_map_axis_table(entries, idx, outdir, axis_values, axis_col,
-                        base_name, descriptor, with_pct=False):
-    """Shared core for Table S1 (tumour type x characteristic) and Table S2
-    (tumour type x LoE): one categorical axis counted against tumour-type
-    leaves, written as one TSV per source map. Table S3 is built separately.
+                        descriptor, with_pct=False):
+    """Shared core for Tables S10 and S13 (tumour type x characteristic) and
+    Tables S11 and S14 (tumour type x LoE): one categorical axis counted
+    against tumour-type leaves, written as one TSV per source map. Tables S9
+    and S12 are built separately.
     The total row is the fan-out column sum, so it equals the rows above."""
     maps = idx["map_order"]
     supp = ec.supplements_dir(outdir)
@@ -1092,28 +1184,30 @@ def _per_map_axis_table(entries, idx, outdir, axis_values, axis_col,
         total_row["Total n"] = f"{len(em):,}"
         rows.append(total_row)
 
-        name = f"{base_name}{_letter(pos)}_{ec.map_slug(m)}_{descriptor}"
+        name = _per_map_table_name(descriptor, pos, m)
         path = ec.save_table(pd.DataFrame(rows), supp, name)
         saved.append(path.name)
     return saved
 
 
-def tableS1_type_by_characteristic(data, entries, idx, outdir) -> None:
+def tableS10_S13_type_by_characteristic(data, entries, idx, outdir) -> None:
+    """Tables S10 and S13: tumour type by characteristic, one TSV per source map."""
     saved = _per_map_axis_table(
         entries, idx, outdir, ec.CHARACTERISTIC_ORDER, "characteristic",
-        "TableS1", "tumour_type_by_characteristic")
-    print(f"[TableS1] saved {len(saved)} per-map TSV(s): {', '.join(saved)}")
+        "tumour_type_by_characteristic")
+    print(f"[TableS10, S13] saved {len(saved)} per-map TSV(s): {', '.join(saved)}")
 
 
-def tableS2_type_by_loe(data, entries, idx, outdir) -> None:
+def tableS11_S14_type_by_loe(data, entries, idx, outdir) -> None:
+    """Tables S11 and S14: tumour type by LoE, one TSV per source map."""
     saved = _per_map_axis_table(
         entries, idx, outdir, ec.LOE_ORDER, "loe",
-        "TableS2", "tumour_type_by_loe")
-    print(f"[TableS2] saved {len(saved)} per-map TSV(s): {', '.join(saved)}")
+        "tumour_type_by_loe")
+    print(f"[TableS11, S14] saved {len(saved)} per-map TSV(s): {', '.join(saved)}")
 
 
-def tableS3_characteristics_by_loe(data, entries, idx, outdir) -> None:
-    """Characteristic x LoE, one TSV per source map. Counts and within-map
+def tableS9_S12_characteristics_by_loe(data, entries, idx, outdir) -> None:
+    """Tables S9 and S12: characteristic x LoE, one TSV per source map. Counts and within-map
     percentages over raw entries (one per entry)."""
     maps = idx["map_order"]
     supp = ec.supplements_dir(outdir)
@@ -1140,16 +1234,19 @@ def tableS3_characteristics_by_loe(data, entries, idx, outdir) -> None:
         total_row["Total"] = cell(counts.sum())
         rows.append(total_row)
 
-        name = f"TableS3{_letter(pos)}_{ec.map_slug(m)}_characteristics_by_loe"
+        name = _per_map_table_name("characteristics_by_loe", pos, m)
         path = ec.save_table(pd.DataFrame(rows), supp, name)
         saved.append(path.name)
-    print(f"[TableS3] saved {len(saved)} per-map TSV(s): {', '.join(saved)}")
+    print(f"[TableS9, S12] saved {len(saved)} per-map TSV(s): {', '.join(saved)}")
 
 
 # ---------------------------------------------------------------------------
 # Registry and main
 # ---------------------------------------------------------------------------
 
+# Registry of all outputs. Every builder takes (data, entries, idx, outdir)
+# and writes its own files. --only selects a subset by these names; without
+# --only every builder runs in this order.
 BUILDERS = {
     # main text
     "table1_details_of_egm":                 table1_details_of_egm,
@@ -1160,16 +1257,19 @@ BUILDERS = {
     "fig6_high_loe_heatmap":                 fig6_high_loe_heatmap,
     "fig7_gap_matrix":                       fig7_gap_matrix,
     # supplements
-    "figS1_characteristics_by_loe_by_group": figS1_characteristics_by_loe_by_group,
-    "figS2_tumour_type_by_loe_by_group":     figS2_tumour_type_by_loe_by_group,
-    "tableS1_type_by_characteristic":        tableS1_type_by_characteristic,
-    "tableS2_type_by_loe":                   tableS2_type_by_loe,
-    "tableS3_characteristics_by_loe":        tableS3_characteristics_by_loe,
-    "tableS4_loe_by_characteristic_and_group": tableS4_loe_by_characteristic_and_group,
+    "figS5_characteristics_by_loe_by_group": figS5_characteristics_by_loe_by_group,
+    "figS6_tumour_type_by_loe_by_group":     figS6_tumour_type_by_loe_by_group,
+    "tableS9_S12_characteristics_by_loe":    tableS9_S12_characteristics_by_loe,
+    "tableS10_S13_type_by_characteristic":   tableS10_S13_type_by_characteristic,
+    "tableS11_S14_type_by_loe":              tableS11_S14_type_by_loe,
+    # additional output, not part of the publication
+    "additional_loe_by_characteristic_and_group": additional_loe_by_characteristic_and_group,
 }
 
 
 def main() -> None:
+    """Command-line entry point: load the merged JSON, build the tidy entries
+    frame once, print a data summary and run the selected builders."""
     parser = argparse.ArgumentParser(
         description="Generate all WCT EVI MAP figures and tables for one "
                     "merged Blue Book JSON.")

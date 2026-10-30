@@ -1,40 +1,63 @@
 """
 01_automated_coding_loe.py
-===========================
-Adds a Level of Evidence (LoE) code to each reference in a WCT EVI MAP
-coding JSON file and splits references that carry more than one tumour
-characteristic into one record per characteristic.
+==========================
+Step 1 of the WCT EVI MAP pipeline. Adds a Level of Evidence (LoE) code to
+each reference in one EPPI-Reviewer coding JSON export and splits references
+that carry more than one tumour characteristic into one record per
+characteristic.
+
+Run this once per source map (one search and one map, for example the AML
+map or the B-ALL/LBL map of the Haematolymphoid Blue Book). The resulting
+*_loe.json files are combined by 02_merge_json_files.py.
 
 Background
 ----------
 Each reference in the EPPI-Reviewer JSON export is coded with one or more
-tumour types, one or more characteristics (e.g. Histopathology, Prognosis)
-and a study design. The LoE is not stored directly in the export but is
+tumour types, one or more characteristics (for example Histopathology or
+Prognosis) and a study design. The LoE is not stored in the export. It is
 derived from the combination of characteristic and study design using the
-HETP (Hierarchy of Research Evidence in Tumour Pathology) lookup table
-stored in 01_study_design_to_loe_HETP.json.
+Hierarchy of Research Evidence for Tumour Pathology (HETP; Colling et al.,
+Modern Pathology 2024), encoded as a lookup table in
+01_study_design_to_loe_HETP.json. The same study design can map to a
+different LoE depending on the characteristic, which is why the lookup is
+keyed by characteristic first.
 
 Processing steps
 ----------------
 1. Consistency check: every reference must have at least one characteristic,
-   one study design and one tumour type coded.
-2. For each reference, the appropriate LoE is looked up and added as a code.
-3. References with multiple characteristics are duplicated into one record
-   per characteristic (each copy retaining only that characteristic's code).
-4. The extended data is written to a new file with the suffix _loe.json.
-5. Summary statistics (counts per tumour type, characteristic and LoE) are
-   printed to the terminal.
+   one study design and one tumour type coded. If any reference fails, the
+   offending titles are printed and the script stops without writing output.
+2. References with N characteristics are duplicated into N records, each
+   retaining only one characteristic code.
+3. For each record the LoE is looked up from (characteristic, study design)
+   and appended as a code. Every code receives its human-readable name in
+   the AdditionalText field.
+4. Records are renumbered consecutively (ItemId) and written to a new file
+   next to the input, with the suffix _loe.json. The original EPPI-Reviewer
+   study identifier (OldItemId) is kept unchanged and is used downstream to
+   identify unique studies.
+5. A check confirms that no reference was lost or added by the split, then
+   summary statistics are printed to the terminal: counts per tumour type,
+   characteristic and study design; record totals before and after the
+   split; the number of multi-coded records; and the number of systematic
+   reviews.
 
 Usage
 -----
-    python 01_automated_coding_loe.py <path_to_wp_json>
+    python 01_automated_coding_loe.py <path_to_eppi_export.json>
 
 Arguments
 ---------
-    path_to_wp_json : Path to the EPPI-Reviewer export JSON file to process.
+    path_to_eppi_export.json : EPPI-Reviewer JSON export of one source map.
 
-The study design to LoE lookup file (01_study_design_to_loe_HETP.json) is
-expected to reside in the same directory as this script.
+Output
+------
+    <input name>_loe.json, written next to the input file.
+
+The lookup file 01_study_design_to_loe_HETP.json must reside in the same
+directory as this script. Its keys must match the characteristic and study
+design names in the EPPI-Reviewer codeset exactly, and its values must match
+the names of the LoE codes (Level P1 to Level P5, Unclassifiable).
 """
 
 import json
@@ -59,7 +82,7 @@ SELECTABLE = "selectable"
 
 
 def print_error_msg(error_msg: str) -> None:
-    """Print a colored error message to the command-line.
+    """Print a coloured (red) error message to the command line.
 
     Args:
         error_msg (`str`): Error message.
@@ -133,8 +156,10 @@ def write_json_content(json_path: str, content: dict) -> None:
 
 
 def find_selectable_attributes(data, selectable_items: dict) -> None:
-    """Find all children dictionaries with the AttributeType 'selectable'
-    inside a parent dict or list. Iterate them recursively.
+    """Recursively collect every codeset attribute whose AttributeType starts
+    with 'selectable', i.e. the codes a reviewer can tick. Recursion stops at
+    a selectable node, so for the tumour axis this returns the tumour types
+    and not the tumour groups above them.
 
     Args:
         data (`dict`/`list`): Parent list or dict to start searching.
@@ -156,11 +181,13 @@ def find_selectable_attributes(data, selectable_items: dict) -> None:
 
 
 def get_tumour_types(wp_content: dict) -> list:
-    """Get all tumour types mentioned in the attributes
-    of the WP json-file.
+    """Get all tumour types from the codeset. The tumour axis is the first
+    top-level attribute that is neither Characteristics, Study design nor the
+    LoE axis (the Blue Book node), and its selectable descendants are the
+    tumour types.
 
     Args:
-        wp_content (`dict`): WP content.
+        wp_content (`dict`): Content of the EPPI-Reviewer JSON export.
 
     Returns:
         `list`: All tumour types found, if any.
@@ -175,23 +202,26 @@ def get_tumour_types(wp_content: dict) -> list:
             and "LoE" not in set_attr_name
         ):
             find_selectable_attributes(attr_list_elem, selectable_items)
-            print(selectable_items)
             tumour_types = list(selectable_items.values())
             break
     return tumour_types
 
 
 def get_code_sets(wp_content: dict):
-    """Get all codes and their descriptive string description.
+    """Map every AttributeId in the codeset to its AttributeName.
+
+    The codeset is read to a fixed depth: the children of each top-level axis
+    (characteristics, study designs, LoE bands and tumour groups) and their
+    children (tumour types). This matches the WCT EVI MAP codeset structure
+    Blue Book > tumour group > tumour type. Deeper nesting would not be read.
 
     Args:
-        wp_content (`dict`): WP json-file content.
+        wp_content (`dict`): Content of the EPPI-Reviewer JSON export.
 
     Returns:
-        `dict`: Dictionary containing code and description.
+        `dict`: AttributeId -> AttributeName (whitespace stripped).
     """
 
-    # FIXME: use iterative approach and search for "selectable"
     code_sets = {}
     for attr1 in wp_content[CODE_SETS][0][ATTR][ATTR_LIST]:
         for attr2 in attr1[ATTR][ATTR_LIST]:
@@ -203,14 +233,14 @@ def get_code_sets(wp_content: dict):
 
 
 def get_wp_template(wp_content: dict) -> dict:
-    """Get a WP json-file template which contains all the codes and
-    an empty references list.
+    """Build the output skeleton: the input CodeSets and an empty References
+    list that is filled with the split and LoE-coded records.
 
     Args:
-        wp_content (`dict`): WP json-file content.
+        wp_content (`dict`): Content of the EPPI-Reviewer JSON export.
 
     Returns:
-        `dict`: A copy of the input WP content with cleared references.
+        `dict`: {"CodeSets": <copy of input CodeSets>, "References": []}.
     """
 
     wp_template = {CODE_SETS: [], REFS: []}
@@ -235,16 +265,17 @@ def get_reference_codes(reference: dict) -> list:
 def get_study_design_and_level(
     ref_code_translations: list, characteristic_info: dict
 ) -> tuple:
-    """Get the study design and it's corresponing level of evidence.
+    """Get the study design of a reference and its LoE for one characteristic.
 
     Args:
         ref_code_translations (`list`): List of translated codes of
         the reference entry.
-        characteristic_info (`dict`): Study designs and their
-        corresponding level of evidence.
+        characteristic_info (`dict`): HETP lookup for one characteristic,
+        study design -> LoE.
 
     Returns:
-        `tuple`: The study design and the level of evidence as strings.
+        `tuple`: (study design, LoE) as strings, or ("", "") if the reference
+        carries no study design listed for this characteristic.
     """
 
     for code_translation in ref_code_translations:
@@ -255,16 +286,15 @@ def get_study_design_and_level(
 
 
 def get_current_tumour_types(ref_codes: list, tumour_types: list) -> list:
-    """Print the amount of each tumour characteristic and study
-    design for each tumour type found.
+    """Return the tumour types a reference is coded for, read from the
+    AdditionalText of its codes (filled by add_text_to_codes).
 
     Args:
         ref_codes (`list`): Codes of the reference.
         tumour_types (`list`): List of all tumour types.
 
-     Returns:
-        `list`: Tumour types found, if any. Otherwise an
-         empty list is returned.
+    Returns:
+        `list`: Tumour types found, or an empty list.
     """
 
     tumour_types_found = []
@@ -278,7 +308,7 @@ def get_current_tumour_types(ref_codes: list, tumour_types: list) -> list:
 def clean_up_characteristics(
     reference: dict, curr_characteristic: str, characteristics: list, code_sets: dict
 ) -> None:
-    """Remove all codes that representing charateristics, except the current characteristic.
+    """Remove all characteristic codes from a reference except the current one.
 
     Args:
         reference (`dict`): Given reference entry.
@@ -307,7 +337,7 @@ def clean_up_characteristics(
 
 
 def add_level_code(codes: list, code_sets: dict, level_evidence: str) -> None:
-    """Add the code (number) which represents the level of evidence.
+    """Append the code for the given LoE band to a reference's codes.
 
     Args:
         codes (`list`): Current codes of the reference.
@@ -339,7 +369,7 @@ def add_level_code(codes: list, code_sets: dict, level_evidence: str) -> None:
 
 
 def add_text_to_codes(codes: list, code_sets: dict) -> None:
-    """Add a description as additional text to each code of a reference.
+    """Write each code's human-readable name into its AdditionalText field.
 
     Args:
         codes (`list`): Current codes of the reference.
@@ -355,12 +385,12 @@ def add_text_to_codes(codes: list, code_sets: dict) -> None:
 
 
 def print_statistics(wp_content: dict, tumour_types: list) -> None:
-    """Print the amount of each tumour characteristic and study
-    design for each tumour type found.
+    """Print, for each tumour type, the number of records per characteristic
+    and per study design (counted after splitting).
 
     Args:
-        wp_content (`dict`): Current WP content.
-        tumour_types (`list`): List of all tomour types.
+        wp_content (`dict`): LoE-coded content.
+        tumour_types (`list`): List of all tumour types.
     """
 
     tumour_stats = {
@@ -396,16 +426,16 @@ def print_statistics(wp_content: dict, tumour_types: list) -> None:
 def count_presplit_multiples(
     wp_content: dict, code_sets: dict, tumour_types: list, characteristics: list
 ) -> tuple[int, int, int, int]:
-    """Count, on the original WP data (pre-splitting), how many records
+    """Count, on the original export (before splitting), how many records
     have multiple tumour types and how many have multiple tumour characteristics.
     Also count, on the same data, how many unique records are affected by
     either condition (each record counted once even if both conditions hold)
     and how many records are coded as Systematic Review.
 
     Args:
-        wp_content (`dict`): Current WP content.
+        wp_content (`dict`): Content of the EPPI-Reviewer JSON export.
         code_sets (`dict`): Mapping from code ID to description.
-        tumour_types (`list`): All tumour types detected in the WP file.
+        tumour_types (`list`): All tumour types detected in the export.
         characteristics (`list`): All tumour characteristics (keys of study_design_to_level).
 
     Returns:
@@ -454,18 +484,18 @@ def count_presplit_multiples(
 def check_coding_consistency(
     wp_content: dict, study_design_to_level: dict, tumour_types: list, code_sets: dict
 ) -> bool:
-    """Check all the references/studies to ensure that each of them has at least one
-    characteristic, study design & tumour type encoded.
+    """Check that every reference has at least one characteristic, one study
+    design and one tumour type coded. Offending titles are printed.
 
     Args:
-        wp_content (`dict`): Current WP content.
+        wp_content (`dict`): Content of the EPPI-Reviewer JSON export.
         study_design_to_level (`dict`): Dictionary containing characteristics and
         their corresponding study designs and level of evidence.
         tumour_types (`list`): List of all tumour types.
         code_sets (`dict`): Dictionary containing code and description.
 
     Returns:
-        `bool`: Whether the coded WP data is consistent.
+        `bool`: Whether the coded data is consistent.
     """
 
     characteristics = set(study_design_to_level.keys())
@@ -490,7 +520,7 @@ def check_coding_consistency(
         if not tumour_types.intersection(ref_code_translations):
             check_msg += "\t\t-> No tumour type found in " + CODE_SETS + "\n"
 
-        # Print error message and set flag, if any inconstistency was found
+        # Print error message and set flag, if any inconsistency was found
         if check_msg:
             print(f"\tChecking reference: {TITLE} = {reference[TITLE]}")
             print_error_msg(check_msg)
@@ -500,12 +530,12 @@ def check_coding_consistency(
 
 
 def check_modification_consistency(wp_content: dict, new_wp_content: dict) -> bool:
-    """Check the original WP data and the modified version to
-    validate the modifications applied.
+    """Confirm that splitting neither lost nor added a reference, by
+    comparing the sets of titles before and after.
 
     Args:
-        wp_content (`dict`): Current WP content.
-        new_wp_content (`dict`): Modified WP content.
+        wp_content (`dict`): Content of the EPPI-Reviewer JSON export.
+        new_wp_content (`dict`): LoE-coded content.
 
     Returns:
         `bool`: Whether modifications are consistent.
@@ -538,15 +568,20 @@ def get_characteristics_loe_count(
     characteristics: list,
     levels_evidence: list,
 ) -> dict:
-    # TODO: Unittesting
-    """Count the amount of the different level of evidence for each
-    tumour type and each characteristic.
+    """Count records per characteristic and LoE for one tumour type.
+
+    Not called by main(); kept as a helper for interactive checks.
 
     Args:
-        wp_content (`dict`): Current WP content.
-        tumour_type (`str`): Current tumour type.
-        study_design_to_level (`dict`): Dictionary containing characteristics and
-        their corresponding study designs and level of evidence.
+        wp_content (`dict`): LoE-coded content.
+        tumour_type (`str`): Tumour type to count.
+        study_design_to_level (`dict`): HETP lookup (unused, kept for
+        signature compatibility).
+        characteristics (`list`): Characteristic names.
+        levels_evidence (`list`): LoE band names.
+
+    Returns:
+        `dict`: characteristic -> {LoE: count}.
     """
     common_elements = lambda list1, list2: [
         element for element in list1 if element in list2
@@ -581,7 +616,8 @@ def get_characteristics_loe_count(
 def extend_reference(
     reference: dict, study_design_to_level: dict, code_sets: dict, characteristics: list
 ) -> list:
-    """Add the code (number) which represents the level of evidence.
+    """Split one reference into one record per characteristic and add the
+    LoE code to each record.
 
     Args:
         reference (`dict`): Current reference.
@@ -592,7 +628,7 @@ def extend_reference(
 
     Returns:
         `list`: A list of references. Each reference represents the incoming one,
-        but only refering to one characteristic.
+        but only referring to one characteristic.
         The list will contain N elements for a study with N characteristics.
     """
 
@@ -634,14 +670,13 @@ def extend_reference(
 
 
 def main(wp_path: str, study_design_to_level_path: str) -> None:
-    """Read the WP data from the json-file and extent it. For each reference,
-    the level of evidence is added. If a reference has more than one characteristic,
-    it is splitted into two duplicated references with only one unique characteristic.
+    """Run step 1 on one EPPI-Reviewer export: check consistency, split each
+    reference into one record per characteristic, add the LoE code, write
+    <input>_loe.json and print summary statistics.
 
     Args:
-        wp_path (`str`): Path to the WP json-file.
-        study_design_to_level (`dict`): Dictionary containing characteristics and
-        their corresponding study designs and level of evidence.
+        wp_path (`str`): Path to the EPPI-Reviewer JSON export.
+        study_design_to_level_path (`str`): Path to the HETP lookup JSON.
     """
 
     wp_content = read_json_content(wp_path)
@@ -725,7 +760,9 @@ if __name__ == "__main__":
     study_design_to_level_path = os.path.join(script_dir, "01_study_design_to_loe_HETP.json")
 
     if len(sys.argv) != 2:
-        print_error_msg("Usage: python egm_add_loe.py <path_to_wp_json>")
+        print_error_msg(
+            "Usage: python 01_automated_coding_loe.py <path_to_eppi_export.json>"
+        )
         sys.exit(1)
 
     wp_path = sys.argv[1]

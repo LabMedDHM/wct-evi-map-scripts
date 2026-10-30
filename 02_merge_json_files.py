@@ -1,8 +1,15 @@
 """
 02_merge_json_files.py
 ======================
-Merges all WCT EVI MAP coding JSON files belonging to a single WHO Blue Book
-(WHO Classification of Tumours) into one combined JSON.
+Step 2 of the WCT EVI MAP pipeline. Merges the LoE-coded JSON files of all
+source maps belonging to one WHO Classification of Tumours Blue Book (the
+*_loe.json outputs of 01_automated_coding_loe.py) into one combined JSON that
+03_egm_figures_and_tables.py reads.
+
+For the Haematolymphoid Blue Book these are the AML map and the B-ALL/LBL
+map. Each source map was screened and coded in its own EPPI-Reviewer review,
+so the same code (for example "Prognosis") carries a different AttributeId
+in each file. This script reconciles those IDs.
 
 Merge logic
 -----------
@@ -16,7 +23,7 @@ Merge logic
   equivalent by matching on AttributeName. Tumour-type codes have no primary
   counterpart and are kept as-is, since the merged codeset retains their
   original AttributeIds via the appended hierarchy.
-- References from all files are concatenated without de-duplication. A study
+- References from all files are concatenated without deduplication. A study
   coded for tumour types in more than one file legitimately appears in each
   file and must be retained as separate records, consistent with how
   01_automated_coding_loe.py splits studies coded for multiple characteristics
@@ -30,6 +37,13 @@ Safety checks
   secondary file clashes with a different code already present in the merge.
 - A post-merge integrity check confirms every reference code resolves to a
   name in the merged codeset, catching any unmapped shared-axis code.
+
+Source maps
+-----------
+No source-map tag is written here. The merged codeset keeps every tumour
+group of every input file, and egm_common.SOURCE_MAP_OF_GROUP assigns each
+codeset tumour group to its source map when the figures are built (for
+Haematolymphoid, the three AML codeset groups all belong to the AML map).
 
 Usage
 -----
@@ -70,11 +84,13 @@ def print_error_msg(error_msg: str) -> None:
 
 
 def load_json(path: str) -> dict:
+    """Load a JSON file as UTF-8."""
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)
 
 
 def save_json(data: dict, path: str) -> None:
+    """Write data as indented UTF-8 JSON (non-ASCII characters kept as is)."""
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, ensure_ascii=False, indent=2)
     print(f"Saved merged JSON to: {path}")
@@ -216,6 +232,14 @@ def check_reference_integrity(merged: dict) -> bool:
 # ---------------------------------------------------------------------------
 
 def merge(input_paths: list, output_path: str) -> None:
+    """Merge the given *_loe.json files into one JSON at output_path.
+
+    The first path is the primary: its codeset and shared axes are kept and
+    the tumour groups of every further file are appended under its Blue Book
+    node. Secondary reference codes are remapped to the primary IDs, all
+    references are concatenated, the integrity check is run and the merged
+    file is saved. Exits if fewer than two inputs are given.
+    """
     if len(input_paths) < 2:
         print_error_msg("Need at least two input files to merge.")
         sys.exit(1)
@@ -303,6 +327,8 @@ def discover_loe_files(folder: str) -> list:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    """Command-line entry point: resolve the input files from a folder or
+    from --files, validate them and run the merge."""
     parser = argparse.ArgumentParser(
         description="Merge all WCT EVI MAP JSON files of one Blue Book into one JSON."
     )
