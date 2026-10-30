@@ -4,7 +4,9 @@ egm_common.py
 Shared core for the WCT EVI MAP figure and table generator. It turns one
 merged Blue Book JSON (the output of 02_merge_json_files.py after LoE coding)
 into tidy data, and holds every styling and ordering decision so that all
-figures and tables come out identical across the four Blue Books.
+figures and tables share one style and one set of counting rules across
+the Blue Books (Haematolymphoid, Endocrine and Neuroendocrine, Central
+Nervous System).
 
 This module produces no final files. It is imported, not run, which is why it
 carries no numeric filename prefix.
@@ -21,10 +23,10 @@ and keeps an `entry_id` so the three counting units used in the publications
 can all be recovered from the same frame:
 
   - per-leaf record  : use entries_df directly. One row per (raw entry, leaf).
-                       Drives Figure 7, Figure S2, Table S1, Table S2 and the
+                       Drives Figure 7, Figure S6, Tables S10, S11, S13, S14 and the
                        entries-per-tumour-type counts.
   - raw entry        : entries_df.drop_duplicates("entry_id"). One row per raw
-                       entry. Drives Figure 5, Figure S1, the study-design
+                       entry. Drives Figure 5, Figure S5, the study-design
                        figure and the "Entries in the EGM" count.
   - unique study     : dedupe on `study_id` (OldItemId). Drives Figure 3 and
                        the study-level rows of Table 1.
@@ -33,6 +35,9 @@ For per-group (per source map) views, an entry is counted once per source map
 it touches, i.e. drop_duplicates(["entry_id", "source_map"]). In every Blue
 Book here each entry sits in exactly one source map, so this only matters as a
 safeguard.
+
+Raw entries without a tumour-type leaf, a characteristic or an LoE are dropped
+by entries_df; their number is reported on the console by the generator.
 
 Source maps versus codeset tumour groups
 ----------------------------------------
@@ -219,6 +224,7 @@ def load_merged(path: str) -> dict:
 
 
 def _children(node: dict) -> List[dict]:
+    """Child attributes of a codeset node (empty list for a leaf)."""
     sub = node.get("Attributes", {})
     return (sub.get("AttributesList", []) if isinstance(sub, dict) else []) or []
 
@@ -406,22 +412,26 @@ def _slug(text: str) -> str:
 
 
 def map_slug(source_map: str) -> str:
+    """Slug of a source-map name, used in per-group table file names."""
     return _slug(source_map)
 
 
 def figures_dir(base: str) -> Path:
+    """Create (if needed) and return base/4_Figures for main-text figures."""
     p = Path(base) / "4_Figures"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def tables_dir(base: str) -> Path:
+    """Create (if needed) and return base/5_Tables for main-text tables."""
     p = Path(base) / "5_Tables"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def supplements_dir(base: str) -> Path:
+    """Create (if needed) and return base/6_Supplemental_material."""
     p = Path(base) / "6_Supplemental_material"
     p.mkdir(parents=True, exist_ok=True)
     return p
